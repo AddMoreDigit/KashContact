@@ -1,0 +1,473 @@
+import { useState } from 'react';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Search, Filter, Users, Target, Wallet, X } from 'lucide-react';
+import { toast } from 'sonner@2.0.3';
+import { RemoveContributorDialog } from './RemoveContributorDialog';
+import { ReplaceContributorDialog } from './ReplaceContributorDialog';
+import { RefundContributorDialog } from './RefundContributorDialog';
+import { NavBar } from './NavBar';
+import imgEllipse34 from 'figma:asset/e44d5cd688ebcf29969455cdd422abc0ede80023.png';
+import imgEllipse35 from 'figma:asset/4b26bfd150174ba0370dd3bfeef0c80dcb584d88.png';
+import imgEllipse36 from 'figma:asset/d770c99e932e76eba63bc37ec25fdba69d4b4874.png';
+import imgEllipse81 from 'figma:asset/a38e09f349af3cdf8495e0f6372c393c37a6f63a.png';
+import imgEllipse95 from 'figma:asset/9f04bb2572ad50fe735025822908a2a8e26f385f.png';
+import imgEllipse104 from 'figma:asset/8728437952d5fa1c460c00bc34d1eadd9a0faa94.png';
+
+type Page = 'dashboard' | 'campaigns' | 'vouchers' | 'transactions' | 'profile' | 'overview' | 'draft' | 'howItWorks' | 'campaignDetail' | 'viewCampaign' | 'messaging' | 'serviceDetail' | 'selectedServices' | 'createCampaign' | 'manageCampaign' | 'contributors' | 'contributorDetail' | 'campaignSchedule' | 'campaignsHistory' | 'contribute' | 'viewCampaignDetail';
+
+interface Member {
+  email: string;
+  name?: string;
+  avatar?: string;
+  contributionPercentage: number;
+  contributedAmount: number;
+  goalAmount: number;
+  daysLeft: number;
+  missedPayments: number;
+  status: 'on-track' | 'completed' | 'critical';
+}
+
+interface Campaign {
+  id: number;
+  title: string;
+  goal: number;
+  contributed: number;
+  members: any[];
+  startDate: string;
+  endDate: string;
+  memberPerformance?: Member[];
+}
+
+interface ContributorsPageProps {
+  onNavigate: (page: Page) => void;
+  campaign?: Campaign | null;
+  onSelectMember?: (member: Member) => void;
+  onRemoveMember?: (memberEmail: string) => void;
+  onReplaceMember?: (oldMemberEmail: string, newMemberEmail: string) => void;
+  onRefundMember?: (memberEmail: string, amount: number) => void;
+  onShowNotifications?: () => void;
+  hasUnreadNotifications?: boolean;
+  onShowCart?: () => void;
+}
+
+export function ContributorsPage({ onNavigate, campaign, onSelectMember, onRemoveMember, onReplaceMember, onRefundMember, onShowNotifications, hasUnreadNotifications, onShowCart }: ContributorsPageProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'on-track' | 'completed' | 'critical'>('all');
+  const [showLoadMore, setShowLoadMore] = useState(true);
+  const [selectedMemberForAction, setSelectedMemberForAction] = useState<Member | null>(null);
+  const [showRemoveDialog, setShowRemoveDialog] = useState(false);
+  const [showReplaceDialog, setShowReplaceDialog] = useState(false);
+  const [showRefundDialog, setShowRefundDialog] = useState(false);
+
+  if (!campaign) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-gray-50">
+        <p className="text-gray-500">No campaign selected</p>
+      </div>
+    );
+  }
+
+  // Calculate campaign stats
+  const progressPercentage = Math.round((campaign.contributed / campaign.goal) * 100);
+  const totalMembers = campaign.members.length;
+  
+  // Calculate days remaining
+  const today = new Date();
+  const endDate = new Date(campaign.endDate);
+  const daysLeft = Math.max(0, Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+
+  // Use campaign's memberPerformance if available, otherwise generate it
+  let memberPerformance: Member[];
+  
+  if (campaign.memberPerformance && campaign.memberPerformance.length > 0) {
+    // Use the existing member performance data from the campaign
+    memberPerformance = campaign.memberPerformance;
+  } else {
+    // Generate member performance data if not available (fallback for old campaigns)
+    const avatars = [imgEllipse34, imgEllipse35, imgEllipse36, imgEllipse81, imgEllipse95, imgEllipse104];
+    const statuses: Array<'on-track' | 'completed' | 'critical'> = ['on-track', 'completed', 'critical', 'on-track', 'on-track', 'on-track'];
+    const percentages = [74, 100, 65, 74, 74, 74];
+
+    memberPerformance = campaign.members.map((member, index) => {
+      const goalShare = campaign.goal / totalMembers;
+      const percentage = percentages[index % percentages.length];
+      const contributedAmount = (goalShare * percentage) / 100;
+      
+      // Extract name from email (before @ symbol) and capitalize
+      const emailName = member.email.split('@')[0];
+      const displayName = emailName.charAt(0).toUpperCase() + emailName.slice(1).replace(/[._-]/g, ' ');
+      
+      return {
+        email: member.email,
+        name: displayName,
+        avatar: avatars[index % avatars.length],
+        contributionPercentage: percentage,
+        contributedAmount: contributedAmount,
+        goalAmount: goalShare,
+        daysLeft: daysLeft,
+        missedPayments: index === 2 ? 1 : index > 2 ? 1 : 0,
+        status: statuses[index % statuses.length],
+      };
+    });
+  }
+
+  const filteredMembers = memberPerformance.filter(member => {
+    const matchesSearch = member.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      member.email.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter = selectedFilter === 'all' || member.status === selectedFilter;
+    return matchesSearch && matchesFilter;
+  });
+
+  const getStatusColor = (status: 'on-track' | 'completed' | 'critical') => {
+    switch (status) {
+      case 'on-track':
+        return { bg: 'bg-green-50', text: 'text-green-600', badge: 'On Track' };
+      case 'completed':
+        return { bg: 'bg-purple-50', text: 'text-purple-600', badge: 'Completed' };
+      case 'critical':
+        return { bg: 'bg-red-50', text: 'text-red-600', badge: 'Critical' };
+    }
+  };
+
+  const CircularProgress = ({ percentage, status }: { percentage: number; status: 'on-track' | 'completed' | 'critical' }) => {
+    const radius = 45;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+    const getStrokeColor = () => {
+      if (status === 'completed') return '#8B5CF6';
+      if (status === 'critical') return '#EF4444';
+      return '#22C55E';
+    };
+
+    return (
+      <div className="relative inline-flex items-center justify-center">
+        <svg className="w-28 h-28 transform -rotate-90">
+          <circle
+            cx="56"
+            cy="56"
+            r={radius}
+            stroke="#E5E7EB"
+            strokeWidth="10"
+            fill="none"
+          />
+          <circle
+            cx="56"
+            cy="56"
+            r={radius}
+            stroke={getStrokeColor()}
+            strokeWidth="10"
+            fill="none"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-2xl" style={{ color: getStrokeColor() }}>{percentage}%</span>
+        </div>
+      </div>
+    );
+  };
+
+  const handleRemove = (memberName: string) => {
+    toast.success(`${memberName} has been removed from the campaign`);
+  };
+
+  const handleReplace = (memberName: string) => {
+    toast.success(`Replacement request sent for ${memberName}`);
+  };
+
+  const handleRefund = (memberName: string, amount: number) => {
+    toast.success(`Refund of R${amount.toFixed(2)} initiated for ${memberName}`);
+  };
+
+  return (
+    <div className="flex-1 bg-gray-50 min-h-screen">
+      <NavBar 
+        onNavigate={onNavigate} 
+        onShowNotifications={onShowNotifications}
+        hasUnreadNotifications={hasUnreadNotifications}
+        onShowCart={onShowCart}
+        showCreateButton={false}
+      />
+      
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 px-8 py-6">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl text-black">Contributors</h1>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onNavigate('manageCampaign')}
+            className="rounded-full hover:bg-gray-100"
+          >
+            <X className="h-6 w-6" />
+          </Button>
+        </div>
+
+        {/* Search and Filters */}
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <Input
+              placeholder="Search by Name or Campaign"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 bg-gray-50"
+            />
+          </div>
+          <Button variant="outline" className="gap-2">
+            <Filter className="h-4 w-4" />
+            Filters
+          </Button>
+          <Button variant="outline">
+            Sort by
+          </Button>
+        </div>
+      </div>
+
+      <div className="px-8 py-6 max-w-7xl mx-auto">
+        {/* Campaign Contribution Progress */}
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl text-black">Campaign Contribution Progress</h2>
+            <div className="flex items-center gap-2 text-purple-600">
+              <Users className="h-5 w-5" />
+              <span>{totalMembers} Members</span>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-8">
+            {/* Overall Progress Circle */}
+            <div className="relative inline-flex items-center justify-center">
+              <svg className="w-44 h-44 transform -rotate-90">
+                <circle
+                  cx="88"
+                  cy="88"
+                  r="70"
+                  stroke="#E5E7EB"
+                  strokeWidth="14"
+                  fill="none"
+                />
+                <circle
+                  cx="88"
+                  cy="88"
+                  r="70"
+                  stroke="#2D1B69"
+                  strokeWidth="14"
+                  fill="none"
+                  strokeDasharray={2 * Math.PI * 70}
+                  strokeDashoffset={2 * Math.PI * 70 - (progressPercentage / 100) * 2 * Math.PI * 70}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-5xl text-[#2D1B69]">{progressPercentage}%</span>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div className="flex-1 space-y-4">
+              <div className="flex items-center gap-3">
+                <Target className="h-5 w-5 text-purple-600" />
+                <span className="text-gray-700">Goal {campaign.goal.toLocaleString()}</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Wallet className="h-5 w-5 text-green-600" />
+                <span className="text-gray-700">Contributed {campaign.contributed.toLocaleString()}</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-gray-700">📅 {daysLeft} days to go!</span>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="mt-6">
+                <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-purple-600 rounded-full transition-all duration-500"
+                    style={{ width: `${progressPercentage}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Motivation Message */}
+              <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-3 flex items-start gap-2">
+                <span className="text-xl">✅</span>
+                <p className="text-green-700 text-sm">
+                  Keep going Team! You're {progressPercentage}% up to reach your goal
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Individual Campaign Tracking */}
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <h2 className="text-xl text-black mb-6">Individual Campaign Tracking</h2>
+
+          <div className="grid grid-cols-3 gap-6">
+            {filteredMembers.map((member, index) => {
+              const statusColor = getStatusColor(member.status);
+              return (
+                <div 
+                  key={index} 
+                  onClick={() => {
+                    if (onSelectMember) {
+                      onSelectMember(member);
+                    }
+                    onNavigate('contributorDetail');
+                  }}
+                  className="border border-gray-200 rounded-lg p-6 cursor-pointer hover:shadow-lg hover:border-purple-300 transition-all"
+                >
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={member.avatar}
+                        alt={member.name || ''}
+                        className="w-12 h-12 rounded-full object-cover"
+                      />
+                      <div>
+                        <p className="text-black">{member.name}</p>
+                        <p className="text-gray-600 text-xs">{member.email}</p>
+                      </div>
+                    </div>
+                    <span className={`${statusColor.bg} ${statusColor.text} text-xs px-3 py-1 rounded`}>
+                      {statusColor.badge}
+                    </span>
+                  </div>
+
+                  {/* Progress Circle */}
+                  <div className="flex justify-center mb-4">
+                    <CircularProgress percentage={member.contributionPercentage} status={member.status} />
+                  </div>
+
+                  {/* Stats */}
+                  <div className="space-y-2 mb-4 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600 flex items-center gap-1">
+                        <Target className="h-4 w-4" />
+                        {member.status === 'completed' ? 'Goal Reached' : `Goal R${member.goalAmount.toFixed(0)}`}
+                      </span>
+                      <span className={`${statusColor.text} flex items-center gap-1`}>
+                        <Wallet className="h-4 w-4" />
+                        Paid R{member.contributedAmount.toFixed(0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">{member.daysLeft} Days Left</span>
+                      {member.missedPayments > 0 && (
+                        <span className="text-red-600">Missed {member.missedPayments}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedMemberForAction(member);
+                        setShowRemoveDialog(true);
+                      }}
+                      className="flex-1 text-xs"
+                    >
+                      Remove
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedMemberForAction(member);
+                        setShowReplaceDialog(true);
+                      }}
+                      className="flex-1 bg-purple-50 text-xs"
+                    >
+                      Replace
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setSelectedMemberForAction(member);
+                        setShowRefundDialog(true);
+                      }}
+                      className="flex-1 bg-[#8363F2] hover:bg-[#6B4FD8] text-white text-xs"
+                    >
+                      Refund
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Load More Button */}
+          {showLoadMore && filteredMembers.length >= 6 && (
+            <div className="flex justify-center mt-6">
+              <Button
+                variant="outline"
+                onClick={() => setShowLoadMore(false)}
+                className="px-8"
+              >
+                Load More
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Dialogs */}
+      {selectedMemberForAction && (
+        <>
+          <RemoveContributorDialog
+            open={showRemoveDialog}
+            onOpenChange={setShowRemoveDialog}
+            contributorName={selectedMemberForAction.name || 'Member'}
+            contributorEmail={selectedMemberForAction.email}
+            missedPayments={selectedMemberForAction.missedPayments}
+            onConfirm={(reason) => {
+              if (onRemoveMember) {
+                onRemoveMember(selectedMemberForAction.email);
+              }
+              toast.success(`${selectedMemberForAction.name} has been removed from the campaign`);
+              setShowRemoveDialog(false);
+            }}
+          />
+
+          <ReplaceContributorDialog
+            open={showReplaceDialog}
+            onOpenChange={setShowReplaceDialog}
+            contributorName={selectedMemberForAction.name || 'Member'}
+            missedPayments={selectedMemberForAction.missedPayments}
+            onConfirm={(data) => {
+              if (onReplaceMember) {
+                onReplaceMember(selectedMemberForAction.email, data.newMemberEmail);
+              }
+              toast.success(`${selectedMemberForAction.name} will be replaced${data.newMemberEmail ? ` with ${data.newMemberEmail}` : ''}`);
+              setShowReplaceDialog(false);
+            }}
+          />
+
+          <RefundContributorDialog
+            open={showRefundDialog}
+            onOpenChange={setShowRefundDialog}
+            contributorName={selectedMemberForAction.name || 'Member'}
+            refundAmount={selectedMemberForAction.contributedAmount}
+            onConfirm={(data) => {
+              if (onRefundMember) {
+                onRefundMember(selectedMemberForAction.email, selectedMemberForAction.contributedAmount);
+              }
+              toast.success(`Refund of R${selectedMemberForAction.contributedAmount.toFixed(2)} initiated for ${selectedMemberForAction.name}`);
+              setShowRefundDialog(false);
+            }}
+          />
+        </>
+      )}
+    </div>
+  );
+}

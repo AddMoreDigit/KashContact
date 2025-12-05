@@ -1,0 +1,7 @@
+{
+  "supabase": {
+    "enabled": false,
+    "skipDeployment": true,
+    "skipEdgeFunctions": true
+  }
+}

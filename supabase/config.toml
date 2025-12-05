@@ -1,0 +1,18 @@
+# Supabase configuration
+# This project does NOT use Supabase - all data is stored in localStorage
+
+[api]
+enabled = false
+
+[db]
+enabled = false
+
+[functions]
+# Disable edge functions deployment
+enabled = false
+
+[auth]
+enabled = false
+
+[storage]
+enabled = false
